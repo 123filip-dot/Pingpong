@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b1020">
+<title>Ping Pong 2P</title>
+<style>
+  html, body { margin:0; height:100%; background:#0b1020; overflow:hidden;
+    overscroll-behavior:none; touch-action:none; -webkit-user-select:none; user-select:none; }
+  body { display:flex; align-items:center; justify-content:center; }
+  canvas { height:100%; max-width:100%; aspect-ratio:360/640; touch-action:none; display:block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="360" height="640"></canvas>
+<script>
+const c = document.getElementById('c'), g = c.getContext('2d');
+const W = 360, H = 640, PW = 76, PH = 12, R = 8, WIN = 7;
+const TOP_Y = 36, BOT_Y = H - 36 - PH;
+let pTop = { x: W/2, s: 0 }, pBot = { x: W/2, s: 0 };
+let ball = { x: W/2, y: H/2, vx: 0, vy: 0 };
+let state = 'ready', waitUntil = 0, winner = '';
+
+function serve(dir) {
+  ball.x = W/2; ball.y = H/2;
+  ball.vx = (Math.random() * 2 - 1) * 2;
+  ball.vy = 4.5 * dir;
+  waitUntil = performance.now() + 700;
+}
+function reset() { pTop.s = pBot.s = 0; state = 'playing'; serve(Math.random() < .5 ? 1 : -1); }
+
+// Touch / pointer: top half controls top paddle, bottom half controls bottom paddle
+const owners = {};
+function pos(e) {
+  const r = c.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+}
+function move(p, who) {
+  const x = Math.max(PW/2, Math.min(W - PW/2, p.x));
+  (who === 'top' ? pTop : pBot).x = x;
+}
+c.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if (state !== 'playing') { reset(); }
+  const p = pos(e); owners[e.pointerId] = p.y < H/2 ? 'top' : 'bot';
+  move(p, owners[e.pointerId]);
+  c.setPointerCapture(e.pointerId);
+});
+c.addEventListener('pointermove', e => {
+  const w = owners[e.pointerId]; if (w) move(pos(e), w);
+});
+['pointerup','pointercancel'].forEach(t => c.addEventListener(t, e => { delete owners[e.pointerId]; }));
+
+function point(toBot) {
+  if (toBot) pBot.s++; else pTop.s++;
+  if (pBot.s >= WIN || pTop.s >= WIN) {
+    state = 'over'; winner = pBot.s > pTop.s ? 'Bottom' : 'Top';
+    ball.vx = ball.vy = 0; return;
+  }
+  serve(toBot ? -1 : 1); // loser receives
+}
+
+function update(k) {
+  if (state !== 'playing' || performance.now() < waitUntil) return;
+  ball.x += ball.vx * k; ball.y += ball.vy * k;
+  if (ball.x < R) { ball.x = R; ball.vx = Math.abs(ball.vx); }
+  if (ball.x > W - R) { ball.x = W - R; ball.vx = -Math.abs(ball.vx); }
+
+  // bottom paddle
+  if (ball.vy > 0 && ball.y + R >= BOT_Y && ball.y + R <= BOT_Y + PH + ball.vy * k + 2 &&
+      Math.abs(ball.x - pBot.x) <= PW/2 + R) {
+    ball.vy = -Math.min(Math.abs(ball.vy) * 1.06, 11);
+    ball.vx += (ball.x - pBot.x) / (PW/2) * 3;
+    ball.y = BOT_Y - R;
+  }
+  // top paddle
+  if (ball.vy < 0 && ball.y - R <= TOP_Y + PH && ball.y - R >= TOP_Y - ball.vy * -k - 2 &&
+      Math.abs(ball.x - pTop.x) <= PW/2 + R) {
+    ball.vy = Math.min(Math.abs(ball.vy) * 1.06, 11);
+    ball.vx += (ball.x - pTop.x) / (PW/2) * 3;
+    ball.y = TOP_Y + PH + R;
+  }
+  ball.vx = Math.max(-9, Math.min(9, ball.vx));
+
+  if (ball.y < -R) point(true);
+  else if (ball.y > H + R) point(false);
+}
+
+function text(t, x, y, size, rot) {
+  g.save(); g.translate(x, y); if (rot) g.rotate(Math.PI);
+  g.font = `bold ${size}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(t, 0, 0); g.restore();
+}
+function draw() {
+  g.fillStyle = '#0b1020'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(255,255,255,.25)'; g.setLineDash([10, 10]); g.lineWidth = 2;
+  g.beginPath(); g.moveTo(0, H/2); g.lineTo(W, H/2); g.stroke(); g.setLineDash([]);
+
+  g.fillStyle = 'rgba(255,255,255,.12)';
+  text(pTop.s, W/2, H/2 - 70, 90, true);
+  text(pBot.s, W/2, H/2 + 70, 90, false);
+
+  g.fillStyle = '#ff5d73'; g.beginPath(); g.roundRect(pTop.x - PW/2, TOP_Y, PW, PH, 6); g.fill();
+  g.fillStyle = '#4dd2ff'; g.beginPath(); g.roundRect(pBot.x - PW/2, BOT_Y, PW, PH, 6); g.fill();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(ball.x, ball.y, R, 0, 7); g.fill();
+
+  g.fillStyle = '#fff';
+  if (state === 'ready') {
+    text('PING PONG', W/2, H/2 - 150, 30, false);
+    text('PING PONG', W/2, H/2 + 150, 30, true);
+    text('Drag in your half to move', W/2, H/2 - 105, 15, false);
+    text('Drag in your half to move', W/2, H/2 + 105, 15, true);
+    text('First to ' + WIN + ' wins. Tap to start', W/2, H/2 - 40, 17, false);
+  }
+  if (state === 'over') {
+    g.fillStyle = 'rgba(11,16,32,.8)'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#fff';
+    text(winner + ' player wins!', W/2, H/2 - 40, 28, true);
+    text(winner + ' player wins!', W/2, H/2 + 40, 28, false);
+    text('Tap to play again', W/2, H/2 + 100, 16, false);
+    text('Tap to play again', W/2, H/2 - 100, 16, true);
+  }
+}
+let last = performance.now();
+function loop(t) {
+  const k = Math.min((t - last) / 16.667, 3); last = t;
+  update(k); draw(); requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
